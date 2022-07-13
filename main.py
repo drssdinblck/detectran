@@ -1,3 +1,4 @@
+from signal import SIGKILL
 from concurrent.futures import ThreadPoolExecutor
 from my_utils import (
     PrintableDefaultDict, est_entropy, is_encrypting,
@@ -32,16 +33,30 @@ def handle_external_event(notifier, event):
         if event.filename not in file_stats:
             file_stats[event.filename]['ent'] = est_entropy(event)
 
-        allow_event(notifier, event)
+        if proc_stats[event.pid]['is_trusted']:
+            allow_event(notifier, event)
+        elif proc_stats[event.pid]['suspicious_activity_count'] < 3:
+            allow_event(notifier, event)
+        else:
+            print("SUSPICIOUS_PROCESS({})[{}]".format(event.pid, proc_stats[event.pid]))
+            kill_or_trust = input("Kill process (k) or trust process (t)").lower()
+            if kill_or_trust.startswith('k'):
+                deny_event(notifier, event)
+                os.kill(event.pid, SIGKILL)
+                print("Killed process with pid {}".format(event.pid))
+            elif kill_or_trust.startswith('t'):
+                proc_stats[event.pid]['is_trusted'] = True
+                print("Trusting process with pid {}".format(event.pid))
+                allow_event(notifier, event)
     elif event.modify_event:
         ent_before = file_stats[event.filename]['ent']
         ent_after = est_entropy(event)
-        proc_stats[event.pid][event.filename]['ent_before'] = ent_before
-        proc_stats[event.pid][event.filename]['ent_after'] = ent_after
+        proc_stats[event.pid]['file_activity']['ent_before'] = ent_before
+        proc_stats[event.pid]['file_activity'][event.filename]['ent_after'] = ent_after
         file_stats[event.filename]['ent'] = ent_after
 
         if is_encrypting(ent_before, ent_after):
-            print("PROBABLY_ENCRYPTING({})[{}]".format(event.pid, event.filename))
+            proc_stats[event.pid]['suspicious_activity_count'] += 1
 
     event.close()
 
@@ -56,5 +71,12 @@ def handle_self_emitted_event(notifier, event):
 
 if __name__ == '__main__':
     file_stats = PrintableDefaultDict(lambda: {})
-    proc_stats = PrintableDefaultDict(lambda: PrintableDefaultDict(lambda: {}))
+    proc_stats = PrintableDefaultDict(
+        lambda: {
+            'is_trusted': False,
+            'suspicious_activity_count': 0,
+            'file_activity': PrintableDefaultDict(lambda: {})
+        }
+    )
+
     loop_events()

@@ -1,4 +1,4 @@
-from signal import SIGKILL
+
 from concurrent.futures import ThreadPoolExecutor
 from my_utils import (
     PrintableDefaultDict, est_entropy, is_encrypting,
@@ -38,16 +38,8 @@ def handle_external_event(notifier, event):
         elif proc_stats[event.pid]['suspicious_activity_count'] < 3:
             allow_event(notifier, event)
         else:
-            print("SUSPICIOUS_PROCESS({})[{}]".format(event.pid, proc_stats[event.pid]))
-            kill_or_trust = input("Kill process (k) or trust process (t)").lower()
-            if kill_or_trust.startswith('k'):
-                deny_event(notifier, event)
-                os.kill(event.pid, SIGKILL)
-                print("Killed process with pid {}".format(event.pid))
-            elif kill_or_trust.startswith('t'):
-                proc_stats[event.pid]['is_trusted'] = True
-                print("Trusting process with pid {}".format(event.pid))
-                allow_event(notifier, event)
+            print("SUSPICIOUS_PROCESS_EVENT({})[{}]".format(event.pid, proc_stats[event.pid]))
+            proc_stats[event.pid]['is_trusted'] = decide_trust_process(notifier, event)
     elif event.modify_event:
         ent_before = file_stats[event.filename]['ent']
         ent_after = est_entropy(event)

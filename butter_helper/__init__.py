@@ -1,4 +1,5 @@
 import os
+from signal import SIGKILL
 
 #  fanotify events
 from butter.fanotify import (
@@ -48,3 +49,20 @@ def print_event(event):
         t = 'OTHER'
 
     print('{}({})[{}]'.format(t, by_pid, event.filename))
+
+
+def decide_trust_process(notifier, event):
+    kill_trust_or_ignore = input("Kill process (k), trust process (t) or ignore event (i)").lower()
+    if kill_trust_or_ignore.startswith('k'):
+        print("KILL_PROCESS({})".format(event.pid))
+        deny_event(notifier, event)
+        os.kill(event.pid, SIGKILL)
+    elif kill_trust_or_ignore.startswith('t'):
+        print("TRUST_PROCESS({})".format(event.pid))
+        allow_event(notifier, event)
+        return True
+    else:
+        print("ALLOW_EVENT({})]".format(event.pid))
+        allow_event(notifier, event)
+
+    return False

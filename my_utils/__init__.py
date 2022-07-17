@@ -1,8 +1,12 @@
 import os
 import gzip
+import uuid
 from collections import defaultdict
+from itertools import product
 
 from butter_helper import print_event
+
+_16KiB = 16 * 1024
 
 
 class PrintableDefaultDict(defaultdict):
@@ -13,7 +17,7 @@ class PrintableDefaultDict(defaultdict):
 def est_entropy(event):
     with open(event.filename, 'rb') as f:
         size = os.path.getsize(event.filename)
-        read_len = size if size < 16 * 1024 else 16 * 1024
+        read_len = size if size < _16KiB else _16KiB
         b = f.read(read_len)
         return 1.0 if len(b) == 0 else float(len(gzip.compress(b))) / len(b)
 
@@ -42,4 +46,31 @@ def prints_events(func):
 
     return with_printed_errors
 
+
+def deploy_honeypots(dir_path, prefs=('.#', '.z'), sufs=('.txt', '.pdf')):
+    dir_path = dir_path.rstrip('/')
+    honeypot_paths = [
+        ''.join([dir_path, '/', pref, hex(uuid.getnode()), suf])
+        for (pref, suf) in product(prefs, sufs)
+    ]
+
+    for path in honeypot_paths:
+        if os.path.exists(path):
+            continue
+
+        with open(path, 'w') as f:
+            f.write('A' * _16KiB)
+
+    return honeypot_paths
+
+
+def remove_honeypots(honeypot_paths):
+    removed = []
+
+    for path in honeypot_paths:
+        if os.path.exists(path):
+            os.remove(path)
+            removed.append(path)
+
+    return removed
 

@@ -1,30 +1,49 @@
-
+import os.path
+from time import sleep
 from concurrent.futures import ThreadPoolExecutor
 from my_utils import (
     PrintableDefaultDict, est_entropy, is_encrypting,
-    prints_events, prints_errors
+    prints_events, prints_errors,
+    deploy_honeypots, remove_honeypots
 )
 
 from butter_helper import *
 
 
-def loop_events():
-    watchdir = '/home/appsec/Testfanotify'
-    notifier = Fanotify(FAN_CLASS_CONTENT)
-    mask = FAN_MODIFY | FAN_EVENT_ON_CHILD | FAN_OPEN_PERM | FAN_ACCESS_PERM
-    notifier.watch(watchdir, mask)
-    os.listdir(watchdir)
-
+def monitor_dir_and_loop_events(directory_path, honeypot_paths=()):
     self_event_worker = ThreadPoolExecutor(4)
     ext_event_worker = ThreadPoolExecutor(1)
+    honeypot_event_worker = ThreadPoolExecutor(1)
+
+    notifier = Fanotify(FAN_CLASS_CONTENT)
+    mask = FAN_MODIFY | FAN_EVENT_ON_CHILD | FAN_OPEN_PERM | FAN_ACCESS_PERM
+    notifier.watch(directory_path, mask)
 
     for event in notifier:
         if event.pid == os.getpid():
             self_event_worker.submit(handle_self_emitted_event, notifier, event)
         else:
-            ext_event_worker.submit(handle_external_event, notifier, event)
+            if event.filename in honeypot_paths:
+                honeypot_event_worker.submit(handle_honeypot_event, notifier, event)
+            else:
+                ext_event_worker.submit(handle_external_event, notifier, event)
 
     notifier.close()
+
+
+@prints_errors
+def handle_honeypot_event(notifier, event):
+    if not event.open_perm_event and not event.access_perm_event:
+        event.close()
+        return
+
+    if proc_stats[event.pid]['is_trusted']:
+        allow_event(notifier, event)
+    else:
+        print("HONEYPOT_TOUCH_EVENT({}){{}}[{}]".format(event.pid, proc_stats[event.pid], event.filename))
+        proc_stats[event.pid]['is_trusted'] = decide_trust_process(notifier, event)
+
+    event.close()
 
 
 @prints_errors
@@ -43,7 +62,7 @@ def handle_external_event(notifier, event):
     elif event.modify_event:
         ent_before = file_stats[event.filename]['ent']
         ent_after = est_entropy(event)
-        proc_stats[event.pid]['file_activity']['ent_before'] = ent_before
+        proc_stats[event.pid]['file_activity'][event.filename]['ent_before'] = ent_before
         proc_stats[event.pid]['file_activity'][event.filename]['ent_after'] = ent_after
         file_stats[event.filename]['ent'] = ent_after
 
@@ -62,6 +81,8 @@ def handle_self_emitted_event(notifier, event):
 
 
 if __name__ == '__main__':
+    #  TODO: make possible to toggle honeypot deployment
+    monitor_dir = os.path.expanduser('/home/appsec/Testfanotify')
     file_stats = PrintableDefaultDict(lambda: {})
     proc_stats = PrintableDefaultDict(
         lambda: {
@@ -71,4 +92,10 @@ if __name__ == '__main__':
         }
     )
 
-    loop_events()
+    honeypots = []
+    try:
+        honeypots = deploy_honeypots(monitor_dir)
+        sleep(1)
+        monitor_dir_and_loop_events(monitor_dir, honeypots)
+    finally:
+        remove_honeypots(honeypots)

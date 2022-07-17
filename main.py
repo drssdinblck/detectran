@@ -1,3 +1,4 @@
+import argparse
 import os.path
 from time import sleep
 from concurrent.futures import ThreadPoolExecutor
@@ -81,7 +82,18 @@ def handle_self_emitted_event(notifier, event):
 
 
 if __name__ == '__main__':
-    #  TODO: make possible to toggle honeypot deployment
+    parser = argparse.ArgumentParser(
+        description='detectran - a behavioral ransomware protector'
+    )
+
+    parser.add_argument(
+        '--no-honeypots', '-n',
+        action='store_true',
+        help='deactivate deployment of honeypots'
+    )
+
+    args = parser.parse_args()
+
     monitor_dir = os.path.expanduser('/home/appsec/Testfanotify')
     file_stats = PrintableDefaultDict(lambda: {})
     proc_stats = PrintableDefaultDict(
@@ -94,7 +106,9 @@ if __name__ == '__main__':
 
     honeypots = []
     try:
-        honeypots = deploy_honeypots(monitor_dir)
+        if not args.no_honeypots:
+            honeypots = deploy_honeypots(monitor_dir)
+
         sleep(1)
         monitor_dir_and_loop_events(monitor_dir, honeypots)
     finally:
